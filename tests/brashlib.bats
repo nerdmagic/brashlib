@@ -2,7 +2,7 @@
 
 @test "Check Info, Notice, Warning, Error, Critical, Alert" {
   run tests/examples/logging.sh
-  [[ "$status" -eq 3 ]]
+  (( status == 3 ))
   [[ "$output" =~ "info" ]]
   [[ "$output" =~ "notice" ]]
   [[ "$output" =~ "warning" ]]
@@ -13,7 +13,7 @@
 
 @test "Check Emergency" {
   run tests/examples/emergency.sh
-  [[ "$status" -eq 255 ]]
+  (( status == 255 ))
   [[ "$output" =~ "emergency" ]]
 }
 
@@ -21,12 +21,12 @@
 @test "Check SetLogger overrides logging" {
   match=$RANDOM
   run tests/examples/setlogger.sh $match
-  [[ "$status" -eq 3 ]]
+  (( status == 3 ))
   [[ "$output" == "" ]]
 
 ## Mac logging broke with laptop upgrade, commenting out for now
 #  run grep -A7 "setlogger.sh.*$match" /private/var/log/system.log
-#  [[ "$status" -eq 0 ]]
+#  (( status == 0 ))
 #  [[ "$output" =~ "msg2" ]]
 #  [[ "$output" =~ "msg3" ]]
 #  [[ "$output" =~ "msg4" ]]
@@ -36,5 +36,5 @@
 #  [[ "$output" =~ "stderr" ]]
 
 #  count=$(echo "$output" | wc -l)
-#  [[ "$count" -eq 8 ]]
+#  (( count == 8 ))
 }

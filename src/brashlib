@@ -1,0 +1,241 @@
+#!/usr/bin/env bash
+############################################################################
+## BASH3 stdlib
+## Adapted from https://github.com/kvz/bash3boilerplate/blob/master/main.sh
+##
+## MIT License
+##
+## Standardized bash library.  Additions over time
+## are likely.
+##
+## Useful for sourcing by common bash scripts (with a few exceptions
+## such as init.d scripts):
+##
+## source /usr/local/lib/brashlib || {
+##   echo 'ERROR: sourcing /usr/local/lib/brashlib'
+##   exit 1
+##  }
+###
+## Version 0.1:
+##
+##    Primarily standardizes error messages/output using a LOG_LEVEL
+##    parameter and an error counter variable $error.  The levels are:
+##
+##       0 -- Emergency -- exit immediately
+##       1 -- Alert     -- increment $error, print red output
+##       2 -- Critical  -- increment $error, print red output
+##       3 -- Error     -- increment $error, print red output
+##       4 -- Warning   -- print red output
+##       5 -- Notice    -- print green output
+##       6 -- Info      -- print green output
+##       7 -- Debug     -- print green output
+##
+##    Default verbosity is 5, so use "Notice" for normal green output.
+##
+##    The $error variable, initialized at zero, can be used as the exit
+##    value of the script.
+##
+##    These functions are best used with || statements for error handling.
+##    We set errexit and pipefail, so scripts will immediately exit
+##    on any unhandled nonzero return value.
+##
+##    Because of this it is a good idea to trap EXIT to a cleanup function.
+##
+##    In many cases such as grep or tests where nonzero return values are
+##    normal and expected, simply add '|| true' at the end of the command
+##    string to prevent exit.
+##
+##  Version 0.2:
+##
+##    Source facts as environment variables from /etc/facter/facts.d/*.txt
+##
+##  Version 0.3:
+##
+##    - Source *.sh files in /usr/local/lib/brashlib.d
+##    - Add Dispatch in brashlib.d/dispatch.sh
+##
+##  Version 0.4:
+##
+##    - Added Logger() function to send output to logger(1).
+##    - Calling Logger causes output functions not to print a second
+##      timestamp.
+##    - Removed 'UTC' from timestamp.
+##
+##  Version 0.5:
+##
+##    - Shellcheck compliance
+##
+## Version 0.6:
+##
+##    - Change priority log functions to use overridable _Log()
+##    - Rename Logger to SetLogger
+##    - Add support for SetLogger to send _Log messages to logger
+##    - Fix potential for script exit with set -e and (( error++ )
+##
+## Version 0.7:
+##
+##    - Modified brashlib.d/dispatch.sh to fix some parsing issues
+##      and to reformat code to standard used in brashlib.
+##
+############################################################################
+
+## Runtime
+############################################################################
+set -o errexit
+set -o pipefail
+
+## Configuration
+############################################################################
+
+LOG_LEVEL="${LOG_LEVEL:-5}" # 7 = debug -> 0 = emergency
+
+## Set magic variables for current FILE & DIR
+############################################################################
+__dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck disable=SC2034
+__file="${__dir}/$(basename "${BASH_SOURCE[0]}")"
+
+error=0
+putdate=1
+putcolor=1
+name=$(basename "$0")
+
+# shellcheck disable=SC1090
+
+## On puppetized hosts source /etc/facter/facts.d as environment variables
+############################################################################
+if [[ -d /etc/facter/facts.d/ ]]; then
+  for i in /etc/facter/facts.d/*.txt; do
+    [[ -r "$i" ]] && source "$i"
+  done
+fi
+
+# shellcheck disable=SC1090
+
+## Source files in brashlib.d
+############################################################################
+if [[ -d /usr/local/lib/brashlib.d/ ]]; then
+  for i in /usr/local/lib/brashlib.d/*.sh; do
+    [[ -r "$i" ]] && source "$i"
+  done
+fi
+
+## SetLogger
+############################################################################
+SetLogger () {
+  # Stdout to notice
+  exec 1> >(logger -i -t "$name")
+  # Stderr to err
+  exec 2> >(logger -i -t "$name" -p err)
+
+  # Override _Log to send to logger using given priority
+  _Log () {
+    local priority=$1
+    shift
+    case $priority in
+    critical)
+      priority=crit
+      ;;
+    error)
+      priority=err
+      ;;
+    emergency)
+      priority=emerg
+      ;;
+    esac
+    logger -i -t "$name" -p "$priority" "$*"
+  }
+}
+
+## Color formatting
+############################################################################
+
+# shellcheck disable=SC1117
+
+_Fmt ()  {
+  local color_ok="\x1b[32m"
+  local color_bad="\x1b[31m"
+
+  local color="${color_bad}"
+  if [ "${1}" = "debug" ] || [ "${1}" = "info" ] || [ "${1}" = "notice" ]; then
+    color="${color_ok}"
+  fi
+
+  local color_reset="\x1b[0m"
+  if [[ "${TERM}" != "xterm"* ]] || [ -t 1 ]; then
+    # Don't use colors on pipes or non-recognized terminals
+    putcolor=0
+  fi
+  if (( putcolor == 0 )); then
+    color=""; color_reset=""
+  fi
+  if (( putdate )); then
+    datestamp="$(date -u +"%Y-%m-%d %H:%M:%S") "
+  else
+    datestamp=""
+  fi
+  echo -e "${datestamp}${color}$(printf "[%9s]" "${1}")${color_reset}"
+}
+
+## Output+error functions
+############################################################################
+
+## Write log messages to stderr
+_Log () {
+  priority=$1
+  shift
+  echo "$(_Fmt "$priority") $*" 1>&2 || true
+}
+
+## Error and exit immediately
+Emergency () {
+  _Log emergency "$*"
+  error=255
+  exit 255
+}
+
+## Log output functions
+Alert () {
+  (( error++ )) || true
+  if (( LOG_LEVEL >= 1 )); then
+    _Log alert "$*"
+  fi
+}
+
+Critical () {
+  (( error++ )) || true
+  if (( LOG_LEVEL >= 2 )); then
+    _Log critical "$*"
+  fi
+}
+
+Error () {
+  (( error++ )) || true
+  if (( LOG_LEVEL >= 3 )); then
+    _Log error "$*"
+  fi
+}
+
+Warning () {
+  if (( LOG_LEVEL >= 4 )); then
+    _Log warning "$*"
+  fi
+}
+
+Notice () {
+  if (( LOG_LEVEL >= 5 )); then
+    _Log notice "$*"
+  fi
+}
+
+Info () {
+  if (( LOG_LEVEL >= 6 )); then
+    _Log info "$*"
+  fi
+}
+
+Debug () {
+  if (( LOG_LEVEL >= 7 )); then
+    _Log debug "$*"
+  fi
+}

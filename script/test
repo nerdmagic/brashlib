@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+
+set -e
+
+cd "$(dirname "$0")/.."
+
+shellcheck src/brashlib src/brashlib.d/*.sh && echo "Shellcheck OK" && echo
+bats tests
